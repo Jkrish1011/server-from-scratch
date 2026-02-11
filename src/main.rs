@@ -1,7 +1,8 @@
 use tokio::{
     fs::File,
-    io::AsyncReadExt,
+    io::{AsyncReadExt, AsyncRead},
     sync::mpsc,
+    net::{TcpListener}
 };
 use std::error::Error;
 
@@ -10,7 +11,9 @@ fn print_type<T>(_: &T) {
     println!("{:?}", std::any::type_name::<T>());
 }
 
-async fn get_lines_channel(mut file: File, tx: mpsc::Sender<String>) -> Result<(), Box<dyn Error>> {
+async fn get_lines_channel<R>(mut file: R, tx: mpsc::Sender<String>) -> Result<(), Box<dyn Error>> 
+    where R: AsyncRead + Unpin + Send
+{
     let mut chunk = vec![0;8];
     let mut number_of_lines = 0;
     let mut curr_line_buffer = Vec::new();
@@ -51,14 +54,17 @@ async fn get_lines_channel(mut file: File, tx: mpsc::Sender<String>) -> Result<(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let mut file = File::open("messages.txt").await?;
+    // let mut file = File::open("messages.txt").await?;
     // print_type(&file);
+
+    let listener = TcpListener::bind("127.0.0.1:42062").await?;
+    let (socket, _) = listener.accept().await?;
 
     let (tx, mut rx): (mpsc::Sender<String>, mpsc::Receiver<String>) = mpsc::channel(100);
 
     // print_type(&rx);
     tokio::spawn(async move {
-        get_lines_channel(file, tx).await;
+        get_lines_channel(socket, tx).await;
     });
 
     while let Some(line) = rx.recv().await {
