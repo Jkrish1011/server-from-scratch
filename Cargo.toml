@@ -5,3 +5,8 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1.49.0", features = ["full"] }
+
+[[bin]]
+name = "server-jk"
+path = "src/cmd/tcplistener/main.rs"
+

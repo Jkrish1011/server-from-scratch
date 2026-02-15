@@ -38,13 +38,6 @@ async fn get_lines_channel<R>(mut file: R, tx: mpsc::Sender<String>) -> Result<(
                 curr_line_buffer.push(b);
             }
         }
-        // let curr_string = String::from_utf8_lossy(&chunk[..len]);
-        // println!("{:?}", curr_string);
-        // println!("Length of chunk is : {}", curr_string.len());
-        // println!("Stack size of chunk in  : {}", std::mem::size_of_val(&curr_string));
-        // println!("Stack pointer : {}", &curr_string.to_string());
-        // println!("Heap pointer : {:?}", curr_string.as_ptr());
-        // println!("                         ");
     }
 
     println!("The file has {} number of lines", number_of_lines);
