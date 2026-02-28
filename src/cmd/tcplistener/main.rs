@@ -1,14 +1,21 @@
+mod request;
+
 use tokio::{
-    fs::File,
     io::{AsyncReadExt, AsyncRead},
     sync::mpsc,
     net::{TcpListener}
 };
 use std::error::Error;
 
+use request::request_from_reader;
+
+use tracing::{
+    info, error, debug
+};
+
 
 fn print_type<T>(_: &T) { 
-    println!("{:?}", std::any::type_name::<T>());
+    info!("{:?}", std::any::type_name::<T>());
 }
 
 async fn get_lines_channel<R>(mut file: R, tx: mpsc::Sender<String>) -> Result<(), Box<dyn Error>> 
@@ -29,7 +36,7 @@ async fn get_lines_channel<R>(mut file: R, tx: mpsc::Sender<String>) -> Result<(
                 let curr_string = String::from_utf8_lossy(&curr_line_buffer).to_string();
                 // println!("{:?}", curr_string);
                 if let Err(_) = tx.send(curr_string).await {
-                    println!("Receiver dropped!");
+                    info!("Receiver dropped!");
                     return Ok(());
                 }
                 number_of_lines += 1;
@@ -40,13 +47,16 @@ async fn get_lines_channel<R>(mut file: R, tx: mpsc::Sender<String>) -> Result<(
         }
     }
 
-    println!("The file has {} number of lines", number_of_lines);
+    info!("The file has {} number of lines", number_of_lines);
     
     Ok(())
 } 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::DEBUG) // Explicitly set level
+                .init();
     // let mut file = File::open("messages.txt").await?;
     // print_type(&file);
 
@@ -57,11 +67,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // print_type(&rx);
     tokio::spawn(async move {
-        get_lines_channel(socket, tx).await;
+        let _ = get_lines_channel(socket, tx).await;
     });
 
+    // tokio::spawn(async move {
+    //     if let Err(e) = request_from_reader(socket).await {
+    //         error!("Error: {}", e);
+    //     };
+    // });
+
     while let Some(line) = rx.recv().await {
-        println!("current line : {}", line);
+        info!("current line : {}", line);
     }
     
     Ok(())
