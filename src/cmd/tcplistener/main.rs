@@ -7,7 +7,7 @@ use tokio::{
 };
 use std::error::Error;
 
-use request::request_from_reader;
+// use request::request_from_reader;
 
 use tracing::{
     info, error, debug

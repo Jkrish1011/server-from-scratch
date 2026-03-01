@@ -239,6 +239,7 @@ dependencies = [
 name = "server-project"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "once_cell",
  "serde",
  "serde_json",

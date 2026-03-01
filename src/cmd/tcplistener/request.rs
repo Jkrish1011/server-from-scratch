@@ -9,9 +9,11 @@ use tracing::{
     info, error, debug
 };
 
+use bytes::BytesMut;
+
 static SEPARATOR: Lazy<String> = Lazy::new(|| String::from("\r\n"));
 
-#[derive(Debug, Error)]
+#[derive(Error,Debug)]
 pub enum CustomError {
     #[error("Bad Start Line of the current HTTP Request")]    
     BadStartLine,
@@ -32,23 +34,30 @@ pub enum CustomError {
     CustomErrorMessage(String),
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+enum ParserState {
+    #[default]
+    Initialized,
+    Done
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct RequestLine {
     pub http_version: String, 
     pub request_target: String,
     pub method: String
 }
 
+#[derive(Debug, Default)]
 struct ParseResponse {
     request_line: RequestLine,
-    rest_of_message: String,
+    bytes_consumed: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Request {
-    pub request_line: RequestLine
+    pub request_line: RequestLine,
+    pub state: ParserState,
 }
 
 impl Request {
@@ -60,14 +69,37 @@ impl Request {
         };
 
         let req: Request = Request {
-            request_line
+            request_line,
+            state: ParserState::Initialized
         };
 
         return Ok(req);
     }
+
+    pub fn isDone(&self) -> bool {
+        self.state == ParserState::Done
+    }
+
+    pub async fn parse(&mut self, data: &[u8]) -> Result<i32, CustomError> {
+        let mut read: i32 = 0;
+        match self.state {
+            ParserState::Done => {
+                tracing::info!("Status is Done!");
+            }
+            ParserState::Initialized => {
+                let result = parse_request_line(data).await?;
+                self.request_line = result.request_line;
+                read += result.bytes_consumed;
+            }
+        }
+
+        return Ok(read);
+    }
 }
 
-async fn parse_request_parts(input: String) -> Result<ParseResponse, CustomError> {
+async fn parse_request_line(inp: &[u8]) -> Result<ParseResponse, CustomError> {
+
+    let input = String::from_utf8_lossy(inp);
     let Some((http_message, rest_of_message)) = input.split_once("\r\n") else {
         return Err(CustomError::InvalidHttpMessage);
     };
@@ -89,27 +121,31 @@ async fn parse_request_parts(input: String) -> Result<ParseResponse, CustomError
 
     let result = ParseResponse {
         request_line,
-        rest_of_message: rest_of_message.to_string()
+        bytes_consumed: input.len() as i32
     };
     
     return Ok(result);
 }
 
-pub async fn request_from_reader<R>(mut io: R) -> Result<RequestLine, CustomError> 
+pub async fn request_from_reader<R>(mut io: R) -> Result<Request, CustomError> 
     where R: AsyncRead + Unpin + Send 
 {
     info!("Parsing the request");
-    let mut result: String = String::new();
-    let Ok(_parsed_input_bytes) = io.read_to_string(&mut result).await else {
-        return Err(CustomError::ParseError);
-    };
-    info!("parsed string: {}", result);
-    let Ok(extract_http_message) = parse_request_parts(result).await else {
-        return Err(CustomError::CustomErrorMessage(String::from("Cannot parse the input buffer into parts!")));
-    };
+    let mut chunk = BytesMut::with_capacity(1024);
+    let request = Request::default();
 
-    info!("Extracted Value : {:?} ", extract_http_message.request_line);
-    return Ok(extract_http_message.request_line);
+    while !&request.isDone() {
+
+        let Ok(len) = io.read_buf(&mut chunk).await else {
+            return Err(CustomError::ParseError);
+        };
+
+        if len == 0 {
+            return Ok(request);
+        }
+
+    }
+    return Ok(request);
 }
 
 
