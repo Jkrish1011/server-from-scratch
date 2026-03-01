@@ -6,7 +6,7 @@ use tokio::{
 use thiserror::Error;
 use once_cell::sync::Lazy;
 use tracing::{
-    info, error, debug
+    info, error
 };
 
 use bytes::BytesMut;
@@ -35,10 +35,11 @@ pub enum CustomError {
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
-enum ParserState {
+pub enum ParserState {
     #[default]
     Initialized,
-    Done
+    Done,
+    Error
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -50,7 +51,7 @@ pub struct RequestLine {
 
 #[derive(Debug, Default)]
 struct ParseResponse {
-    request_line: RequestLine,
+    request: Request,
     bytes_consumed: i32,
 }
 
@@ -76,20 +77,32 @@ impl Request {
         return Ok(req);
     }
 
-    pub fn isDone(&self) -> bool {
+    pub fn is_done(&self) -> bool {
         self.state == ParserState::Done
     }
 
-    pub async fn parse(&mut self, data: &[u8]) -> Result<i32, CustomError> {
+    pub fn is_error(&self) -> bool {
+        self.state == ParserState::Error
+    }
+
+    pub async fn parse(&mut self, data: String) -> Result<i32, CustomError> {
         let mut read: i32 = 0;
         match self.state {
             ParserState::Done => {
-                tracing::info!("Status is Done!");
+                info!("Status is Done!");
+            }
+            ParserState::Error => {
+                error!("Error encounted!");
+                return Err(CustomError::CustomErrorMessage(format!("System in Error state")));
             }
             ParserState::Initialized => {
-                let result = parse_request_line(data).await?;
-                self.request_line = result.request_line;
-                read += result.bytes_consumed;
+                let bytes_consumed = parse_request_line(data, self).await?;
+
+                if bytes_consumed == 0 {
+                    return Ok(0);
+                }
+
+                read += bytes_consumed;
             }
         }
 
@@ -97,11 +110,10 @@ impl Request {
     }
 }
 
-async fn parse_request_line(inp: &[u8]) -> Result<ParseResponse, CustomError> {
-
-    let input = String::from_utf8_lossy(inp);
-    let Some((http_message, rest_of_message)) = input.split_once("\r\n") else {
-        return Err(CustomError::InvalidHttpMessage);
+async fn parse_request_line(input: String, req: &mut Request) -> Result<i32, CustomError> {
+    
+    let Some((http_message, _rest_of_message)) = input.split_once(&*SEPARATOR) else {
+        return Ok(0);
     };
 
     let http_split: Vec<&str> = http_message.split(" ").collect();
@@ -119,12 +131,9 @@ async fn parse_request_line(inp: &[u8]) -> Result<ParseResponse, CustomError> {
         method: http_split[0].to_string()
     };
 
-    let result = ParseResponse {
-        request_line,
-        bytes_consumed: input.len() as i32
-    };
+    req.request_line = request_line;
     
-    return Ok(result);
+    return Ok(input.len() as i32);
 }
 
 pub async fn request_from_reader<R>(mut io: R) -> Result<Request, CustomError> 
@@ -132,18 +141,37 @@ pub async fn request_from_reader<R>(mut io: R) -> Result<Request, CustomError>
 {
     info!("Parsing the request");
     let mut chunk = BytesMut::with_capacity(1024);
-    let request = Request::default();
+    let mut request = Request::default();
 
-    while !&request.isDone() {
+    while !&request.is_done() && !&request.is_error() {
 
-        let Ok(len) = io.read_buf(&mut chunk).await else {
-            return Err(CustomError::ParseError);
-        };
+        let len = io.read_buf(&mut chunk).await.map_err(|_| CustomError::ParseError)?;
 
         if len == 0 {
-            return Ok(request);
+            continue;
         }
 
+        let input = String::from_utf8_lossy(&chunk.to_vec()).into_owned();
+
+        match request.parse(input).await {
+            Ok(bytes_consumed) => {
+                if bytes_consumed > 0 {
+                    request.state = ParserState::Done;
+                    info!("Successfully parsed: {:?}", request.request_line);
+                    return Ok(request);
+                }
+            }
+            Err(e) => {
+                request.state = ParserState::Error;
+                return Err(e);
+            }
+        }
+        
+        // request.request_line = result.request_line;
+
+        if chunk.len() > 8192 {
+            return Err(CustomError::CustomErrorMessage("Request too large".to_string()));
+        }
     }
     return Ok(request);
 }

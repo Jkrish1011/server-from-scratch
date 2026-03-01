@@ -1,16 +1,18 @@
 mod request;
 
 use tokio::{
-    io::{AsyncReadExt, AsyncRead},
+    io::{AsyncReadExt, AsyncRead, AsyncWriteExt},
     sync::mpsc,
-    net::{TcpListener}
+    net::{TcpListener, TcpStream}
 };
 use std::error::Error;
 
-// use request::request_from_reader;
+use request::{
+    request_from_reader,
+};
 
 use tracing::{
-    info, error, debug
+    info, error
 };
 
 
@@ -52,6 +54,20 @@ async fn get_lines_channel<R>(mut file: R, tx: mpsc::Sender<String>) -> Result<(
     Ok(())
 } 
 
+async fn handle_connection(mut socket:TcpStream) -> Result<(), Box<dyn Error>> 
+{
+    let (mut reader, mut writer) = socket.split();
+    let response = request_from_reader(&mut reader).await?;
+
+    info!("Response: {:?}", response);
+
+    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 13\r\n\r\nHello, World!";
+    writer.write_all(response.as_bytes()).await?;
+    writer.flush().await?;
+
+    return Ok(());
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()
@@ -63,18 +79,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:42062").await?;
     let (socket, _) = listener.accept().await?;
 
-    let (tx, mut rx): (mpsc::Sender<String>, mpsc::Receiver<String>) = mpsc::channel(100);
+    let (_tx, mut rx): (mpsc::Sender<String>, mpsc::Receiver<String>) = mpsc::channel(100);
 
     // print_type(&rx);
-    tokio::spawn(async move {
-        let _ = get_lines_channel(socket, tx).await;
-    });
-
     // tokio::spawn(async move {
-    //     if let Err(e) = request_from_reader(socket).await {
-    //         error!("Error: {}", e);
-    //     };
+    //     let _ = get_lines_channel(socket, tx).await;
     // });
+
+    tokio::spawn(async move {
+        if let Err(e) = handle_connection(socket).await {
+            error!("Error: {:?}", e);
+        }
+    });
 
     while let Some(line) = rx.recv().await {
         info!("current line : {}", line);
