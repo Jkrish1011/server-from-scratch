@@ -50,7 +50,7 @@ pub struct RequestLine {
 }
 
 #[derive(Debug, Default)]
-struct ParseResponse {
+pub struct ParseResponse {
     request: Request,
     bytes_consumed: i32,
 }

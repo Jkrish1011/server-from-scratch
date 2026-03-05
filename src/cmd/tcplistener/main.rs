@@ -59,10 +59,15 @@ async fn handle_connection(mut socket:TcpStream) -> Result<(), Box<dyn Error>>
     let (mut reader, mut writer) = socket.split();
     let response = request_from_reader(&mut reader).await?;
 
-    info!("Response: {:?}", response);
+    let body = serde_json::to_vec(&response.request_line).unwrap();
+    // info!("Response: {:?}", body);
+    let total_length =  body.len();
 
-    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 13\r\n\r\nHello, World!";
-    writer.write_all(response.as_bytes()).await?;
+    info!("total_length = {}", total_length);
+    let header = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", total_length);
+
+    writer.write_all(header.as_bytes()).await?;
+    writer.write_all(&body).await?;
     writer.flush().await?;
 
     return Ok(());
