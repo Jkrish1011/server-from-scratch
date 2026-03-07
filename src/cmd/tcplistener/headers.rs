@@ -2,6 +2,10 @@ use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use regex::Regex;
+use tracing::{
+    info, error
+};
 
 use crate::errors::CustomError;
 
@@ -26,18 +30,35 @@ impl Header {
     }
 
     fn insert(&mut self, key: String, value: String) -> bool {
-        self.0.insert(key, value);
 
+        if let Some(existing_value) = self.get(&key) {
+            let new_value = format!("{existing_value},{value}");
+            self.0.insert(key, new_value);    
+        } else {
+            self.0.insert(key, value);
+        };
         true
     }
 
     fn get(&self, key: &str) -> Option<&String> {
         self.0.get(key)
     }
+
+    fn is_valid_token(&self) -> Result<bool, CustomError> {
+        let regex = Regex::new(r"^[a-zA-Z0-9!#\$%^&\*\+\-\.\|`~/\\:,]+$").unwrap();
+        for (idx, item) in (&self.0).into_iter() {
+            if !regex.is_match(&item) {
+                return Err(CustomError::CustomErrorMessage(format!("Invalid Header : {}", item)));
+            }
+        }
+
+        return Ok(true);
+    }
 }
 
-pub async fn parse(input: Option<String>) -> Result<Header, CustomError> {
-    
+pub async fn parse(input: Option<String>) -> Result<(Header, i32), CustomError> {
+    info!("Parsing the headers now");
+    let mut bytes_consumed = 0;
     let Some(input) = input else {
         return Err(CustomError::CustomErrorMessage("Empty Header List passed in".to_string()));
     };
@@ -47,14 +68,15 @@ pub async fn parse(input: Option<String>) -> Result<Header, CustomError> {
             break;
         }
 
-        println!("{}", item);
         let (key, value) = Header::parse_line(&item)?;
-        
         header.insert(key.to_string(), value.to_string());
-
+        bytes_consumed += (item.len() + SEPARATOR.len()) as i32;
     }
+    info!("Partially parsed value: {:?}", header);
 
-    Ok(header)
+    header.is_valid_token()?;
+
+    Ok((header, bytes_consumed))
 }
 
 
@@ -64,7 +86,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_header() {
-        let headers = parse(Some("Host: http://127.0.0.1:42062\r\nContent-Type:    text/html".to_string())).await.unwrap();
+        let headers = parse(Some("Host: http://127.0.0.1:42062\r\nContent-Type:    text/html\r\nSet-person: this\r\nSet-person: that\r\nSet-person: now\r\n\r\n".to_string())).await.unwrap();
         println!("{:?}", headers);
         // assert_eq!(headers.get("Host"), Some(&"example.com".to_string()));
     }

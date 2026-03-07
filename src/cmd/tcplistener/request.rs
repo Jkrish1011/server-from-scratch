@@ -9,10 +9,13 @@ use tracing::{
     info, error
 };
 
-use bytes::BytesMut;
+use bytes::{
+    BytesMut,
+    Buf
+};
 
 use crate::errors::CustomError;
-use crate::headers::Header;
+use crate::headers;
 
 static SEPARATOR: Lazy<String> = Lazy::new(|| String::from("\r\n"));
 
@@ -22,6 +25,7 @@ static SEPARATOR: Lazy<String> = Lazy::new(|| String::from("\r\n"));
 pub enum ParserState {
     #[default]
     Initialized,
+    Headers,
     Done,
     Error
 }
@@ -62,10 +66,12 @@ impl Request {
     }
 
     pub fn is_done(&self) -> bool {
+        info!("Is Done is called. result: {}", self.state == ParserState::Done);
         self.state == ParserState::Done
     }
 
     pub fn is_error(&self) -> bool {
+        info!("Is Error is called. result: {}", self.state == ParserState::Error);
         self.state == ParserState::Error
     }
 
@@ -74,6 +80,13 @@ impl Request {
         match self.state {
             ParserState::Done => {
                 info!("Status is Done!");
+            }
+            ParserState::Headers => {
+                info!("Processing Headers");
+                let (headers, bytes_consumed) = headers::parse(Some(data)).await?;
+                info!("headers:: {:?}", headers);
+                self.state = ParserState::Done;
+                read += bytes_consumed;
             }
             ParserState::Error => {
                 error!("Error encounted!");
@@ -85,8 +98,10 @@ impl Request {
                 if bytes_consumed == 0 {
                     return Ok(0);
                 }
-
+                info!("bytes consumed is : {}", bytes_consumed);
                 read += bytes_consumed;
+                self.state = ParserState::Headers;
+                info!("State is now transition to Headers");
             }
         }
 
@@ -117,7 +132,7 @@ async fn parse_request_line(input: String, req: &mut Request) -> Result<i32, Cus
 
     req.request_line = request_line;
     
-    return Ok(input.len() as i32);
+    return Ok(http_message.len() as i32 + 2);
 }
 
 pub async fn request_from_reader<R>(mut io: R) -> Result<Request, CustomError> 
@@ -127,22 +142,29 @@ pub async fn request_from_reader<R>(mut io: R) -> Result<Request, CustomError>
     let mut chunk = BytesMut::with_capacity(1024);
     let mut request = Request::default();
 
+    let len = io.read_buf(&mut chunk).await.map_err(|_| CustomError::ParseError)?;
+
+    if len == 0 {
+        return Ok(request);
+    }
+
     while !&request.is_done() && !&request.is_error() {
-
-        let len = io.read_buf(&mut chunk).await.map_err(|_| CustomError::ParseError)?;
-
-        if len == 0 {
-            continue;
-        }
-
+        info!("In the loop!");
+        info!("Request state is : {:?}", request.state);
+    
         let input = String::from_utf8_lossy(&chunk.to_vec()).into_owned();
+        info!("This is the actual input: {}", input);
 
         match request.parse(input).await {
             Ok(bytes_consumed) => {
                 if bytes_consumed > 0 {
-                    request.state = ParserState::Done;
-                    info!("Successfully parsed: {:?}", request.request_line);
-                    return Ok(request);
+                    info!("Successfully parsed: {:?} by consuming {} bytes", request.request_line, bytes_consumed);
+
+                    chunk.advance(bytes_consumed as usize);
+
+                    if request.is_done() {
+                        return Ok(request);
+                    }
                 }
             }
             Err(e) => {
