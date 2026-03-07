@@ -1,4 +1,7 @@
+mod errors;
 mod request;
+mod headers;
+
 
 use tokio::{
     io::{AsyncReadExt, AsyncRead, AsyncWriteExt},
