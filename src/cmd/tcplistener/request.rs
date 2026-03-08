@@ -15,17 +15,17 @@ use bytes::{
 };
 
 use crate::errors::CustomError;
-use crate::headers;
+use crate::headers::{Header, parse_header};
+use crate::body::{Body, parse_body};
 
 static SEPARATOR: Lazy<String> = Lazy::new(|| String::from("\r\n"));
-
-
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ParserState {
     #[default]
     Initialized,
-    Headers,
+    Header,
+    Body,
     Done,
     Error
 }
@@ -47,6 +47,8 @@ pub struct ParseResponse {
 pub struct Request {
     pub request_line: RequestLine,
     pub state: ParserState,
+    pub headers: Header,
+    pub body: Body
 }
 
 impl Request {
@@ -59,7 +61,9 @@ impl Request {
 
         let req: Request = Request {
             request_line,
-            state: ParserState::Initialized
+            state: ParserState::Initialized,
+            headers: Header::new(),
+            body: Body::new(),
         };
 
         return Ok(req);
@@ -81,12 +85,27 @@ impl Request {
             ParserState::Done => {
                 info!("Status is Done!");
             }
-            ParserState::Headers => {
+            ParserState::Header => {
                 info!("Processing Headers");
-                let (headers, bytes_consumed) = headers::parse(Some(data)).await?;
+                let (headers, bytes_consumed) = parse_header(Some(data)).await?;
                 info!("headers:: {:?}", headers);
-                self.state = ParserState::Done;
+                self.headers = headers;
+                self.state = ParserState::Body;
                 read += bytes_consumed;
+                info!("Consumed bytes in headers: {}", read);
+            }
+            ParserState::Body => {
+                info!("Processing Body");
+                let content_len = self.headers.get("Content-Length").unwrap();
+                info!("Content length is ; {}", content_len);
+                let Ok(content_len) = content_len.parse::<i32>() else {
+                    return Err(CustomError::CustomErrorMessage("Content length is missing".to_string()));
+                };
+                let body_content: Body = parse_body(content_len, Some(data)).await?;
+                info!("body:: {:?}", body_content);
+                self.state = ParserState::Done;
+                read = body_content.len() as i32;
+                self.body = body_content;
             }
             ParserState::Error => {
                 error!("Error encounted!");
@@ -98,9 +117,10 @@ impl Request {
                 if bytes_consumed == 0 {
                     return Ok(0);
                 }
+                
                 info!("bytes consumed is : {}", bytes_consumed);
                 read += bytes_consumed;
-                self.state = ParserState::Headers;
+                self.state = ParserState::Header;
                 info!("State is now transition to Headers");
             }
         }

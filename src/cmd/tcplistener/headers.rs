@@ -11,16 +11,16 @@ use crate::errors::CustomError;
 
 static SEPARATOR: Lazy<String> = Lazy::new(|| String::from("\r\n"));
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Header(HashMap<String, String>);
 
 impl Header {
 
-    fn new() -> Self {
+    pub fn new() -> Self {
         Header(HashMap::new())
     }
 
-    fn parse_line<'a>(input_line: &'a str) -> Result<(&'a str, &'a str), CustomError> {
+    pub fn parse_line<'a>(input_line: &'a str) -> Result<(&'a str, &'a str), CustomError> {
 
         let Some((key, value)) = input_line.split_once(":") else {
             return Err(CustomError::MalformedHeader(input_line.to_string()));
@@ -29,7 +29,7 @@ impl Header {
         return Ok((key.trim(), value.trim()));
     }
 
-    fn insert(&mut self, key: String, value: String) -> bool {
+    pub fn insert(&mut self, key: String, value: String) -> bool {
 
         if let Some(existing_value) = self.get(&key) {
             let new_value = format!("{existing_value},{value}");
@@ -40,11 +40,11 @@ impl Header {
         true
     }
 
-    fn get(&self, key: &str) -> Option<&String> {
+    pub fn get(&self, key: &str) -> Option<&String> {
         self.0.get(key)
     }
 
-    fn is_valid_token(&self) -> Result<bool, CustomError> {
+    pub fn is_valid_token(&self) -> Result<bool, CustomError> {
         let regex = Regex::new(r"^[a-zA-Z0-9!#\$%^&\*\+\-\.\|`~/\\:,]+$").unwrap();
         for (idx, item) in (&self.0).into_iter() {
             if !regex.is_match(&item) {
@@ -56,7 +56,7 @@ impl Header {
     }
 }
 
-pub async fn parse(input: Option<String>) -> Result<(Header, i32), CustomError> {
+pub async fn parse_header(input: Option<String>) -> Result<(Header, i32), CustomError> {
     info!("Parsing the headers now");
     let mut bytes_consumed = 0;
     let Some(input) = input else {
@@ -86,7 +86,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_header() {
-        let headers = parse(Some("Host: http://127.0.0.1:42062\r\nContent-Type:    text/html\r\nSet-person: this\r\nSet-person: that\r\nSet-person: now\r\n\r\n".to_string())).await.unwrap();
+        let headers = parse_header(Some("Host: http://127.0.0.1:42062\r\nContent-Type:    text/html\r\nSet-person: this\r\nSet-person: that\r\nSet-person: now\r\n\r\n".to_string())).await.unwrap();
         println!("{:?}", headers);
         // assert_eq!(headers.get("Host"), Some(&"example.com".to_string()));
     }
