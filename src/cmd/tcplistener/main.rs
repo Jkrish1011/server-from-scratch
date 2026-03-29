@@ -2,6 +2,7 @@ mod errors;
 mod request;
 mod headers;
 mod body;
+mod response;
 
 
 use tokio::{
@@ -10,6 +11,7 @@ use tokio::{
     net::{TcpListener, TcpStream}
 };
 use std::error::Error;
+use crate::response::ResponseObject;
 
 use request::{
     request_from_reader,
@@ -63,13 +65,17 @@ async fn handle_connection(mut socket:TcpStream) -> Result<(), Box<dyn Error>>
     let (mut reader, mut writer) = socket.split();
     let response = request_from_reader(&mut reader).await?;
 
-    let body = serde_json::to_vec(&response.request_line).unwrap();
+    // let body = serde_json::to_vec(&response.request_line).unwrap();
+    let body = "The request was all good".as_bytes();
     // info!("Response: {:?}", body);
-    let total_length =  body.len();
+    // let total_length =  body.len();
 
-    info!("total_length = {}", total_length);
-    let header = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", total_length);
+    // info!("total_length = {}", total_length);
+    // let header = format!("HTTP/1.1 200 OK\r\nContent-Type: application/text\r\nContent-Length: {}\r\n\r\n", total_length);
 
+    let response = ResponseObject::new();
+    let header = response.get_reply_status(200, body);
+    
     writer.write_all(header.as_bytes()).await?;
     writer.write_all(&body).await?;
     writer.flush().await?;

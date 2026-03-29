@@ -69,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_body() {
-        let body = parse(Some("Host: http://127.0.0.1:42062\r\nContent-Type:    text/html\r\nSet-person: this\r\nSet-person: that\r\nSet-person: now\r\n\r\n".to_string())).await.unwrap();
+        let body = parse_body(1024, Some("Host: http://127.0.0.1:42062\r\nContent-Type:    text/html\r\nSet-person: this\r\nSet-person: that\r\nSet-person: now\r\n\r\n".to_string())).await.unwrap();
         println!("{:?}", body);
         // assert_eq!(headers.get("Host"), Some(&"example.com".to_string()));
     }
